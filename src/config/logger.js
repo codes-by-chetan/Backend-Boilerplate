@@ -14,9 +14,57 @@ const levels = {
 const logDirectory = path.join(process.cwd(), "logs");
 fs.mkdirSync(logDirectory, { recursive: true });
 
-const logFilePath = path.join(logDirectory, `app-${new Date().toISOString().slice(0, 10)}.log`);
+const getLogFilePath = () =>
+  path.join(logDirectory, `logs-${new Date().toISOString().slice(0, 10)}.html`);
+
+const initializeLogFile = (filePath) => {
+  if (fs.existsSync(filePath)) {
+    return;
+  }
+
+  const date = new Date().toISOString().split("T")[0];
+  fs.writeFileSync(
+    filePath,
+    `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Application Logs - ${date}</title>
+  <style>
+    body { font-family: monospace; background: #111827; color: #f9fafb; padding: 24px; }
+    .timestamp { color: #9ca3af; }
+    .info { color: #60a5fa; }
+    .warn { color: #fbbf24; }
+    .error { color: #f87171; }
+    .debug { color: #c084fc; }
+    .success { color: #4ade80; }
+    .request { color: #22d3ee; }
+    .meta { color: #d1d5db; }
+  </style>
+</head>
+<body><pre>\n`,
+    "utf8",
+  );
+};
+
+let currentDate = new Date().toISOString().split("T")[0];
+let logFilePath = getLogFilePath();
+initializeLogFile(logFilePath);
+
+const rotateLogFileIfNeeded = () => {
+  const nextDate = new Date().toISOString().split("T")[0];
+  if (nextDate === currentDate) {
+    return;
+  }
+
+  currentDate = nextDate;
+  logFilePath = getLogFilePath();
+  initializeLogFile(logFilePath);
+};
 
 const writeToFile = (level, message, meta) => {
+  rotateLogFileIfNeeded();
+
   const payload = {
     timestamp: new Date().toISOString(),
     level,
@@ -24,7 +72,16 @@ const writeToFile = (level, message, meta) => {
     ...(meta ? { meta } : {}),
   };
 
-  fs.appendFileSync(logFilePath, `${JSON.stringify(payload)}\n`, "utf8");
+  const htmlClass = level === "request" ? "request" : level;
+  const htmlMeta = meta
+    ? ` <span class="meta">${JSON.stringify(payload.meta, null, 2)}</span>`
+    : "";
+
+  fs.appendFileSync(
+    logFilePath,
+    `<span class="timestamp">${payload.timestamp}</span> <span class="${htmlClass}">[${level.toUpperCase()}]</span> ${message}${htmlMeta}\n`,
+    "utf8",
+  );
 };
 
 const formatMeta = (meta) => {
@@ -73,6 +130,11 @@ const logger = {
   error(message, meta) {
     if (shouldLog("error")) {
       baseLog("error", chalk.red, message, meta);
+    }
+  },
+  request(message, meta) {
+    if (shouldLog("info")) {
+      baseLog("request", chalk.cyan, message, meta);
     }
   },
 };

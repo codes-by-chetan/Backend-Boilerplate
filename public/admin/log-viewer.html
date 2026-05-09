@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Log Viewer</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: Consolas, "Courier New", monospace;
+        background: #020617;
+        color: #e2e8f0;
+      }
+
+      .toolbar {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 18px;
+        background: rgba(2, 6, 23, 0.92);
+        border-bottom: 1px solid rgba(148, 163, 184, 0.22);
+        backdrop-filter: blur(10px);
+      }
+
+      .toolbar-left {
+        display: grid;
+        gap: 4px;
+      }
+
+      .title {
+        font-weight: 700;
+      }
+
+      .meta {
+        color: #94a3b8;
+        font-size: 14px;
+      }
+
+      .actions {
+        display: flex;
+        gap: 10px;
+      }
+
+      button {
+        font: inherit;
+        border: 1px solid rgba(148, 163, 184, 0.22);
+        border-radius: 10px;
+        padding: 10px 14px;
+        cursor: pointer;
+        background: linear-gradient(135deg, #38bdf8, #0ea5e9);
+        color: #082f49;
+        font-weight: 700;
+      }
+
+      iframe {
+        width: 100%;
+        height: calc(100vh - 70px);
+        border: 0;
+        background: white;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <div class="title" id="title">Loading log...</div>
+        <div class="meta" id="meta">Fetching latest log HTML</div>
+      </div>
+      <div class="actions">
+        <button id="backButton" type="button">Back</button>
+        <button id="refreshButton" type="button">Refresh</button>
+      </div>
+    </div>
+    <iframe id="viewer" title="Log Viewer"></iframe>
+    <script>
+      const storageKey = "adminAccessToken";
+      const token = localStorage.getItem(storageKey);
+      const isPrivateHost = (hostname) =>
+        hostname === "localhost" ||
+        hostname === "127.0.0.1" ||
+        hostname === "::1" ||
+        /^10\./.test(hostname) ||
+        /^192\.168\./.test(hostname) ||
+        /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname);
+      const resolveApiOrigin = () => {
+        const { protocol, hostname, port } = window.location;
+        const resolvedProtocol = isPrivateHost(hostname) ? "http:" : protocol;
+        return `${resolvedProtocol}//${hostname}${port ? `:${port}` : ""}`;
+      };
+      const apiOrigin = resolveApiOrigin();
+      const params = new URLSearchParams(window.location.search);
+      const file = params.get("file");
+      const date = params.get("date");
+      const recent = params.get("recent");
+
+      const titleElement = document.getElementById("title");
+      const metaElement = document.getElementById("meta");
+      const iframe = document.getElementById("viewer");
+      const backButton = document.getElementById("backButton");
+      const refreshButton = document.getElementById("refreshButton");
+
+      const escapeHtml = (value) =>
+        String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+
+      const formatMultilineString = (value, indent) => {
+        const lines = String(value).split("\n");
+        return [`|`, ...lines.map((line) => `${" ".repeat(indent)}${line}`)].join("\n");
+      };
+
+      const formatStructuredValue = (value, indent = 0) => {
+        const padding = " ".repeat(indent);
+        const nextIndent = indent + 2;
+
+        if (value === null) {
+          return "null";
+        }
+
+        if (Array.isArray(value)) {
+          if (value.length === 0) {
+            return "[]";
+          }
+
+          return `[\n${value
+            .map((item) => `${" ".repeat(nextIndent)}${formatStructuredValue(item, nextIndent)}`)
+            .join(",\n")}\n${padding}]`;
+        }
+
+        if (typeof value === "object") {
+          const entries = Object.entries(value);
+          if (entries.length === 0) {
+            return "{}";
+          }
+
+          return `{\n${entries
+            .map(([key, item]) => {
+              if (typeof item === "string" && item.includes("\n")) {
+                return `${" ".repeat(nextIndent)}"${key}": ${formatMultilineString(item, nextIndent + 2)}`;
+              }
+
+              return `${" ".repeat(nextIndent)}"${key}": ${formatStructuredValue(item, nextIndent)}`;
+            })
+            .join(",\n")}\n${padding}}`;
+        }
+
+        return JSON.stringify(value);
+      };
+
+      const transformLogHtml = (html) => {
+        const parser = new DOMParser();
+        const documentNode = parser.parseFromString(html, "text/html");
+
+        const style = documentNode.createElement("style");
+        style.textContent = `
+          body { line-height: 1.45; }
+          pre { white-space: pre-wrap; }
+          .timestamp-local { color: inherit; }
+          .meta {
+            display: block;
+            margin: 4px 0 12px 28px;
+          }
+          .meta-block {
+            display: block;
+            white-space: pre-wrap;
+            word-break: break-word;
+          }
+        `;
+        documentNode.head.appendChild(style);
+
+        documentNode.querySelectorAll(".timestamp").forEach((element) => {
+          const rawValue = element.textContent.trim();
+          const parsed = new Date(rawValue);
+
+          if (!Number.isNaN(parsed.getTime())) {
+            element.textContent = parsed.toLocaleString();
+            element.classList.add("timestamp-local");
+            element.title = rawValue;
+          }
+        });
+
+        documentNode.querySelectorAll(".meta").forEach((element) => {
+          const rawText = element.textContent.trim();
+
+          try {
+            const parsed = JSON.parse(rawText);
+            element.innerHTML = `<span class="meta-block">${escapeHtml(formatStructuredValue(parsed))}</span>`;
+          } catch (error) {
+            element.innerHTML = `<span class="meta-block">${escapeHtml(rawText.replaceAll("\\n", "\n"))}</span>`;
+          }
+        });
+
+        return `<!DOCTYPE html>\n${documentNode.documentElement.outerHTML}`;
+      };
+
+      const resolveTarget = () => {
+        if (file) {
+          return {
+            label: file,
+            url: `${apiOrigin}/api/v1/logs/file/${encodeURIComponent(file)}`,
+          };
+        }
+
+        if (date) {
+          return {
+            label: `logs-${date}.html`,
+            url: `${apiOrigin}/api/v1/logs/by-date/${encodeURIComponent(date)}`,
+          };
+        }
+
+        if (recent === "true") {
+          return {
+            label: "Recent log",
+            url: `${apiOrigin}/api/v1/logs/recents`,
+          };
+        }
+
+        return null;
+      };
+
+      const target = resolveTarget();
+
+      const loadLog = async () => {
+        if (!token) {
+          titleElement.textContent = "Missing admin token";
+          metaElement.textContent = "Go back to /admin and log in first.";
+          return;
+        }
+
+        if (!target) {
+          titleElement.textContent = "No log target selected";
+          metaElement.textContent = "Open this page from the admin dashboard.";
+          return;
+        }
+
+        titleElement.textContent = target.label;
+        metaElement.textContent = "Fetching latest log HTML...";
+
+        try {
+          const response = await fetch(target.url, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          });
+
+          const html = await response.text();
+          if (!response.ok) {
+            throw new Error(html);
+          }
+
+          iframe.srcdoc = transformLogHtml(html);
+          metaElement.textContent = `Last refreshed at ${new Date().toLocaleTimeString()}`;
+        } catch (error) {
+          iframe.srcdoc = `<pre style="padding:16px;font-family:monospace;">${String(error.message || error)}</pre>`;
+          metaElement.textContent = "Failed to load log content";
+        }
+      };
+
+      backButton.addEventListener("click", () => {
+        window.location.href = `${apiOrigin}/admin`;
+      });
+
+      refreshButton.addEventListener("click", loadLog);
+      loadLog();
+    </script>
+  </body>
+</html>

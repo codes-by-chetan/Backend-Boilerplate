@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Admin Logs Dashboard</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+      :root {
+        --bg: #0f172a;
+        --panel: rgba(15, 23, 42, 0.84);
+        --muted: #94a3b8;
+        --text: #e2e8f0;
+        --accent: #38bdf8;
+        --accent-2: #f59e0b;
+        --success: #22c55e;
+        --danger: #f87171;
+        --border: rgba(148, 163, 184, 0.22);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: Consolas, "Courier New", monospace;
+        background:
+          radial-gradient(circle at top left, rgba(56, 189, 248, 0.2), transparent 30%),
+          radial-gradient(circle at top right, rgba(245, 158, 11, 0.18), transparent 24%),
+          linear-gradient(145deg, #020617, #111827 60%, #1e293b);
+        color: var(--text);
+      }
+
+      .shell {
+        width: min(1100px, calc(100% - 32px));
+        margin: 32px auto;
+        display: grid;
+        gap: 20px;
+      }
+
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        padding: 24px;
+        box-shadow: 0 20px 60px rgba(2, 6, 23, 0.35);
+        backdrop-filter: blur(12px);
+      }
+
+      h1,
+      h2,
+      p {
+        margin-top: 0;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      .debug-origin {
+        margin-top: 12px;
+        font-size: 13px;
+        color: #7dd3fc;
+      }
+
+      .grid {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      }
+
+      .auth-grid {
+        align-items: end;
+      }
+
+      label {
+        display: grid;
+        gap: 8px;
+        font-size: 14px;
+        color: var(--muted);
+      }
+
+      input,
+      button,
+      textarea {
+        font: inherit;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+      }
+
+      input,
+      textarea {
+        background: rgba(15, 23, 42, 0.8);
+        color: var(--text);
+        padding: 12px 14px;
+      }
+
+      button {
+        height: 44px;
+        background: linear-gradient(135deg, var(--accent), #0ea5e9);
+        color: #082f49;
+        font-weight: 700;
+        padding: 0 16px;
+        cursor: pointer;
+      }
+
+      button.secondary {
+        background: rgba(148, 163, 184, 0.12);
+        color: var(--text);
+      }
+
+      button.warning {
+        background: linear-gradient(135deg, var(--accent-2), #f97316);
+        color: #431407;
+      }
+
+      .actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .shortcut-actions {
+        margin-top: 20px;
+      }
+
+      .status {
+        font-size: 14px;
+      }
+
+      .status.ok {
+        color: var(--success);
+      }
+
+      .status.error {
+        color: var(--danger);
+      }
+
+      .log-list {
+        display: grid;
+        gap: 12px;
+      }
+
+      .log-item {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: center;
+        padding: 14px 16px;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        background: rgba(2, 6, 23, 0.45);
+      }
+
+      .log-meta {
+        display: grid;
+        gap: 4px;
+      }
+
+      .log-name {
+        font-weight: 700;
+      }
+
+      .empty {
+        padding: 18px;
+        border-radius: 14px;
+        background: rgba(2, 6, 23, 0.45);
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="text/babel">
+      const { useMemo, useState } = React;
+
+      const storageKey = "adminAccessToken";
+      const isPrivateHost = (hostname) =>
+        hostname === "localhost" ||
+        hostname === "127.0.0.1" ||
+        hostname === "::1" ||
+        /^10\./.test(hostname) ||
+        /^192\.168\./.test(hostname) ||
+        /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname);
+
+      const resolveApiOrigin = () => {
+        const { protocol, hostname, port } = window.location;
+        const resolvedProtocol = isPrivateHost(hostname) ? "http:" : protocol;
+        return `${resolvedProtocol}//${hostname}${port ? `:${port}` : ""}`;
+      };
+
+      function App() {
+        const [email, setEmail] = useState("");
+        const [password, setPassword] = useState("");
+        const [token, setToken] = useState(localStorage.getItem(storageKey) || "");
+        const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
+        const [status, setStatus] = useState("");
+        const [statusType, setStatusType] = useState("ok");
+        const [logs, setLogs] = useState([]);
+
+        const apiOrigin = useMemo(() => resolveApiOrigin(), []);
+        const baseUrl = useMemo(() => `${apiOrigin}/api/v1/logs`, [apiOrigin]);
+
+        const setFeedback = (message, type = "ok") => {
+          setStatus(message);
+          setStatusType(type);
+        };
+
+        const fetchJsonWithAuth = async (url) => {
+          if (!token) {
+            throw new Error("Login first so the Authorization header can be attached.");
+          }
+
+          const response = await fetch(url, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          });
+
+          const body = await response.json();
+          if (!response.ok) {
+            throw new Error(body?.message || JSON.stringify(body));
+          }
+
+          return body;
+        };
+
+        const handleLogin = async (event) => {
+          event.preventDefault();
+
+          try {
+            const response = await fetch(`${apiOrigin}/api/v1/auth/login`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email, password }),
+            });
+
+            const data = await response.json();
+            if (!response.ok) {
+              throw new Error(data?.message || "Login failed");
+            }
+
+            const accessToken = data?.data?.accessToken;
+            if (!accessToken) {
+              throw new Error("Login did not return an access token");
+            }
+
+            localStorage.setItem(storageKey, accessToken);
+            setToken(accessToken);
+            setFeedback("Admin login successful. Token stored in localStorage.");
+          } catch (error) {
+            setFeedback(error.message, "error");
+          }
+        };
+
+        const handleLogout = () => {
+          localStorage.removeItem(storageKey);
+          setToken("");
+          setLogs([]);
+          setFeedback("Local admin token removed.", "ok");
+        };
+
+        const loadLogs = async () => {
+          try {
+            const data = await fetchJsonWithAuth(baseUrl);
+            setLogs(data.logs || []);
+            setFeedback(`Loaded ${data.logs?.length || 0} log files.`);
+          } catch (error) {
+            setFeedback(error.message, "error");
+          }
+        };
+
+        const openViewerByFile = (fileName) => {
+          if (!token) {
+            setFeedback("Login first so the viewer can use the stored token.", "error");
+            return;
+          }
+
+          window.open(
+            `${apiOrigin}/admin/log-viewer.html?file=${encodeURIComponent(fileName)}`,
+            "_blank",
+          );
+        };
+
+        const openViewerByDate = () => {
+          if (!token) {
+            setFeedback("Login first so the viewer can use the stored token.", "error");
+            return;
+          }
+
+          window.open(
+            `${apiOrigin}/admin/log-viewer.html?date=${encodeURIComponent(selectedDate)}`,
+            "_blank",
+          );
+        };
+
+        const openRecentViewer = () => {
+          if (!token) {
+            setFeedback("Login first so the viewer can use the stored token.", "error");
+            return;
+          }
+
+          window.open(`${apiOrigin}/admin/log-viewer.html?recent=true`, "_blank");
+        };
+
+        return (
+          <div className="shell">
+            <section className="card">
+              <h1>Admin Logs Dashboard</h1>
+              <p className="muted">
+                Login once, then browse filenames and open them in a dedicated viewer page. That
+                viewer fetches the protected HTML again whenever the page is refreshed.
+              </p>
+              <p className="debug-origin">API Origin: {apiOrigin}</p>
+              <form className="grid auth-grid" onSubmit={handleLogin}>
+                <label>
+                  Admin Email
+                  <input
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    type="email"
+                    required
+                  />
+                </label>
+                <label>
+                  Password
+                  <input
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    type="password"
+                    required
+                  />
+                </label>
+                <div className="actions">
+                  <button type="submit">Login</button>
+                  <button type="button" className="secondary" onClick={handleLogout}>
+                    Clear Token
+                  </button>
+                </div>
+              </form>
+              <p className={`status ${statusType === "error" ? "error" : "ok"}`}>{status}</p>
+              <label>
+                Stored Access Token
+                <textarea
+                  rows="4"
+                  value={token}
+                  readOnly
+                  placeholder="Login to populate this token"
+                />
+              </label>
+            </section>
+
+            <section className="card">
+              <h2>Viewer Shortcuts</h2>
+              <div className="grid">
+                <label>
+                  Pick Date
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(event) => setSelectedDate(event.target.value)}
+                  />
+                </label>
+                <label>
+                  Date Route URL
+                  <input value={`${baseUrl}/by-date/${selectedDate}`} readOnly />
+                </label>
+              </div>
+              <div className="actions shortcut-actions">
+                <button type="button" onClick={loadLogs}>
+                  Refresh File List
+                </button>
+                <button type="button" className="warning" onClick={openRecentViewer}>
+                  Open Recent Log
+                </button>
+                <button type="button" className="warning" onClick={openViewerByDate}>
+                  Open Selected Date
+                </button>
+              </div>
+            </section>
+
+            <section className="card">
+              <h2>Available Files</h2>
+              {logs.length === 0 ? (
+                <div className="empty">No log files loaded yet. Click "Refresh File List".</div>
+              ) : (
+                <div className="log-list">
+                  {logs.map((log) => (
+                    <div className="log-item" key={log.fileName}>
+                      <div className="log-meta">
+                        <div className="log-name">{log.fileName}</div>
+                        <div className="muted">
+                          Updated: {new Date(log.updatedAt).toLocaleString()}
+                        </div>
+                        <div className="muted">Size: {log.size} bytes</div>
+                      </div>
+                      <button type="button" onClick={() => openViewerByFile(log.fileName)}>
+                        Open Viewer
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+    </script>
+  </body>
+</html>

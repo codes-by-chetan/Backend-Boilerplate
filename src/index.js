@@ -2,15 +2,23 @@ import app from "./app.js";
 import config from "./config/env.js";
 import logger from "./config/logger.js";
 import { closePool, initializeDatabase, testDatabaseConnection } from "./db/prisma.js";
+import getHostIpAddress from "./utils/host-ip.js";
 
 const startServer = async () => {
   try {
-    await testDatabaseConnection();
     await initializeDatabase();
+    await testDatabaseConnection();
 
     const server = app.listen(config.port, () => {
+      const hostIp = getHostIpAddress();
+      const localhostUrl = `http://localhost:${config.port}`;
+      const networkUrl = `http://${hostIp}:${config.port}`;
+
       logger.success(`${config.appName} is running on port ${config.port}`);
       logger.info(`Environment: ${config.env}`);
+      logger.info(`Local URL: ${localhostUrl}`);
+      logger.info(`Network URL: ${networkUrl}`);
+      logger.info(`Allowed app origins: ${config.appOrigins.join(", ")}`);
     });
 
     const shutdown = async (signal) => {

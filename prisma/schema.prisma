@@ -27,6 +27,8 @@ model User {
   createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
   sessions     AuthSession[]
+  requestLogs  RequestLog[]
+  dbLogs       DbLog[]
 
   @@map("users")
 }
@@ -45,4 +47,51 @@ model AuthSession {
   @@index([userId])
   @@index([expiresAt])
   @@map("auth_sessions")
+}
+
+model RequestLog {
+  id             String   @id @default(uuid()) @db.Uuid
+  requestType    String   @map("request_type")
+  requestStatus  String   @map("request_status")
+  errors         String?
+  ipAddress      Json     @map("ip_address")
+  origin         String
+  requestMethod  String   @map("request_method")
+  requestUrl     String   @map("request_url")
+  requestHeaders Json?    @map("request_headers")
+  requestBody    Json?    @map("request_body")
+  responseStatus Int?     @map("response_status")
+  responseBody   Json?    @map("response_body")
+  responseTimeMs Int?     @map("response_time_ms")
+  userId         String?  @map("user_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  user           User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("request_logs")
+}
+
+model DbLog {
+  id                  String   @id @default(uuid()) @db.Uuid
+  previousValue       Json?    @map("previous_value")
+  newValue            Json?    @map("new_value")
+  status              String
+  transactionType     String   @map("transaction_type")
+  transactionDetails  String?  @map("transaction_details")
+  affectedCollection  String   @map("affected_collection")
+  affectedDocumentId  String   @map("affected_document_id")
+  userId              String?  @map("user_id") @db.Uuid
+  ipAddress           String?  @map("ip_address")
+  origin              String?
+  requestId           String?  @map("request_id")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  user                User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([affectedCollection])
+  @@index([createdAt])
+  @@map("db_logs")
 }

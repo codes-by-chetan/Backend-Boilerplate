@@ -1,5 +1,6 @@
 import httpStatus from "http-status";
 
+import { getRequestStore } from "../lib/request-store.js";
 import ApiError from "../utils/ApiError.js";
 import asyncHandler from "../utils/async-handler.js";
 import { getSessionById, getUserById } from "../modules/auth/auth.repository.js";
@@ -35,6 +36,16 @@ export const requireAuth = asyncHandler(async (req, res, next) => {
 
   req.user = user;
   req.session = session;
+
+  const store = getRequestStore();
+  if (store) {
+    store.user = {
+      id: user.id,
+      role: user.role,
+      email: user.email,
+    };
+  }
+
   next();
 });
 

@@ -1,4 +1,6 @@
+import config from "../config/env.js";
 import logger from "../config/logger.js";
+import { bootstrapDatabase } from "./bootstrap.js";
 import prisma from "../lib/prisma.js";
 
 export const testDatabaseConnection = async () => {
@@ -8,7 +10,12 @@ export const testDatabaseConnection = async () => {
 };
 
 export const initializeDatabase = async () => {
-  logger.info("Prisma schema setup is managed through prisma commands");
+  if (config.database.bootstrapEnabled) {
+    await bootstrapDatabase();
+    return;
+  }
+
+  logger.info("Database bootstrap disabled. Skipping automatic database/schema/admin setup");
 };
 
 export const closePool = async () => {

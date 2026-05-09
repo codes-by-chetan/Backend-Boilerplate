@@ -3,6 +3,8 @@ import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from "express";
 import helmet from "helmet";
+import path from "path";
+import { fileURLToPath } from "url";
 
 import config from "./config/env.js";
 import logger from "./config/logger.js";
@@ -15,14 +17,39 @@ import { requestLogger } from "./middlewares/request-logger.js";
 import ApiResponse from "./utils/ApiResponse.js";
 
 const app = express();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-app.set("trust proxy", true);
+app.set("trust proxy", config.trustProxy);
 
-app.use(helmet());
+const allowedOrigins = new Set([...config.corsOrigins, ...config.appOrigins].filter(Boolean));
+
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: false,
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://unpkg.com"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:"],
+        connectSrc: ["'self'", "https://unpkg.com"],
+        fontSrc: ["'self'", "data:"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        frameAncestors: ["'self'"],
+        formAction: ["'self'"],
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+    crossOriginOpenerPolicy: false,
+    originAgentCluster: false,
+  }),
+);
 app.use(
   cors({
     origin(origin, callback) {
-      if (!origin || config.corsOrigins.includes("*") || config.corsOrigins.includes(origin)) {
+      if (!origin || allowedOrigins.has("*") || allowedOrigins.has(origin)) {
         callback(null, true);
         return;
       }
@@ -39,6 +66,29 @@ app.use(cookieParser());
 app.use(requestContext);
 app.use(requestLogger);
 app.use(apiLimiter);
+app.use(
+  express.static(path.join(__dirname, "../public"), {
+    setHeaders(res, filePath) {
+      if (filePath.endsWith(".html")) {
+        res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+        res.setHeader("Pragma", "no-cache");
+        res.setHeader("Expires", "0");
+      }
+    },
+  }),
+);
+app.get("/admin", (req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.sendFile(path.join(__dirname, "../public/admin/index.html"));
+});
+app.get("/admin/log-viewer.html", (req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.sendFile(path.join(__dirname, "../public/admin/log-viewer.html"));
+});
 
 app.get("/", (req, res) => {
   res.status(200).json(
