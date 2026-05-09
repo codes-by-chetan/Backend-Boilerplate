@@ -13,15 +13,18 @@ const buildContextFields = () => {
   };
 };
 
-export const createDbLog = async ({
-  transactionType,
-  transactionDetails,
-  affectedCollection,
-  affectedDocumentId,
-  previousValue = null,
-  newValue = null,
-  status = "success",
-}, db = prisma) =>
+export const createDbLog = async (
+  {
+    transactionType,
+    transactionDetails,
+    affectedCollection,
+    affectedDocumentId,
+    previousValue = null,
+    newValue = null,
+    status = "success",
+  },
+  db = prisma,
+) =>
   db.dbLog.create({
     data: {
       transactionType,
