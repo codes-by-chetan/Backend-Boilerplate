@@ -16,8 +16,9 @@ const __dirname = path.dirname(__filename);
 const quoteIdentifier = (value) => `"${String(value).replace(/"/g, '""')}"`;
 
 const buildConnectionString = ({ database }) => {
-  const credentials = `${encodeURIComponent(config.database.user)}:${encodeURIComponent(config.database.password)}`;
-  return `postgresql://${credentials}@${config.database.host}:${config.database.port}/${database}`;
+  const databaseUrl = new URL(config.databaseUrl);
+  databaseUrl.pathname = `/${database}`;
+  return databaseUrl.toString();
 };
 
 const createClient = (database) =>
