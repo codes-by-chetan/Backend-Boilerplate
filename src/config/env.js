@@ -6,8 +6,14 @@ import getHostIpAddress from "../utils/host-ip.js";
 dotenv.config();
 
 const deriveDatabaseUrl = () => {
-  if (process.env.DATABASE_URL) {
-    return process.env.DATABASE_URL;
+  const directUrl =
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_INTERNAL_URL ||
+    process.env.POSTGRES_URL ||
+    process.env.RENDER_DATABASE_URL;
+
+  if (directUrl) {
+    return directUrl;
   }
 
   const host = process.env.DB_HOST || "localhost";
@@ -35,11 +41,11 @@ const envSchema = Joi.object({
       Joi.string().valid("loopback", "linklocal", "uniquelocal"),
     )
     .default(false),
-  DB_HOST: Joi.string().default("localhost"),
-  DB_PORT: Joi.number().port().default(5432),
-  DB_USER: Joi.string().default("postgres"),
-  DB_PASSWORD: Joi.string().allow("").default("postgres"),
-  DB_NAME: Joi.string().default("backend_boilerplate"),
+  DB_HOST: Joi.string().optional(),
+  DB_PORT: Joi.number().port().optional(),
+  DB_USER: Joi.string().optional(),
+  DB_PASSWORD: Joi.string().allow("").optional(),
+  DB_NAME: Joi.string().optional(),
   DB_MAINTENANCE_NAME: Joi.string().default("postgres"),
   DATABASE_URL: Joi.string()
     .uri({ scheme: [/postgres(?:ql)?/] })
@@ -69,6 +75,12 @@ if (error) {
   throw new Error(`Environment validation failed: ${error.message}`);
 }
 
+const parsedDatabaseUrl = new URL(value.DATABASE_URL);
+const urlDbName = decodeURIComponent(parsedDatabaseUrl.pathname.replace(/^\//, ""));
+const urlPort = parsedDatabaseUrl.port ? Number(parsedDatabaseUrl.port) : 5432;
+const urlUser = decodeURIComponent(parsedDatabaseUrl.username || "postgres");
+const urlPassword = decodeURIComponent(parsedDatabaseUrl.password || "postgres");
+
 const detectedHostIp = getHostIpAddress();
 const detectedNetworkOrigin = `http://${detectedHostIp}:${value.PORT}`;
 const configuredAppOrigins = (value.APP_ORIGINS || "")
@@ -94,11 +106,11 @@ const config = {
   trustProxy: value.TRUST_PROXY,
   databaseUrl: value.DATABASE_URL,
   database: {
-    host: value.DB_HOST,
-    port: value.DB_PORT,
-    user: value.DB_USER,
-    password: value.DB_PASSWORD,
-    name: value.DB_NAME,
+    host: value.DB_HOST || parsedDatabaseUrl.hostname || "localhost",
+    port: value.DB_PORT || urlPort,
+    user: value.DB_USER || urlUser,
+    password: value.DB_PASSWORD ?? urlPassword,
+    name: value.DB_NAME || urlDbName || "backend_boilerplate",
     maintenanceDb: value.DB_MAINTENANCE_NAME,
     bootstrapEnabled: value.BOOTSTRAP_DB,
   },
